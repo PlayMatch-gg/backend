@@ -13,14 +13,12 @@ import (
 
 type LobbyInput struct {
 	GameID      uint   `json:"game_id" binding:"required"`
-	Title       string `json:"title" binding:"required,min=5,max=100"`
 	Description string `json:"description"`
 	MaxPlayers  int    `json:"max_players" binding:"required,min=2,max=10"`
 }
 
 type LobbyResponse struct {
 	ID          uint                 `json:"id"`
-	Title       string               `json:"title"`
 	Description string               `json:"description"`
 	MaxPlayers  int                  `json:"max_players"`
 	Game        GameResponse         `json:"game"`
@@ -42,7 +40,6 @@ func newLobbyResponse(lobby models.Lobby) LobbyResponse {
 
 	return LobbyResponse{
 		ID:          lobby.ID,
-		Title:       lobby.Title,
 		Description: lobby.Description,
 		MaxPlayers:  lobby.MaxPlayers,
 		Game:        gameResponse,
@@ -88,7 +85,6 @@ func CreateLobby(c *gin.Context) {
 	lobby := models.Lobby{
 		GameID:      input.GameID,
 		HostID:      user.ID,
-		Title:       input.Title,
 		Description: input.Description,
 		MaxPlayers:  input.MaxPlayers,
 	}
@@ -312,7 +308,6 @@ func UpdateLobby(c *gin.Context) {
 		return
 	}
 
-	lobby.Title = input.Title
 	lobby.Description = input.Description
 	lobby.MaxPlayers = input.MaxPlayers
 	lobby.GameID = input.GameID
