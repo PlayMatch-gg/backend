@@ -5,10 +5,11 @@ import (
 	"playmatch/backend/internal/database"
 	"playmatch/backend/internal/models"
 	"strconv"
-	"strings" // Added this import
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+// ... (keep existing DTOs)
 
 // region --- DTOs ---
 
@@ -24,10 +25,11 @@ type GameResponse struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	SteamURL    string        `json:"steam_url"`
+	IsFavorite  bool          `json:"is_favorite"`
 	Tags        []TagResponse `json:"tags"`
 }
 
-func newGameResponse(game models.Game) GameResponse {
+func newGameResponse(game models.Game, favoriteIDs map[uint]bool) GameResponse {
 	var tagResponses []TagResponse
 	for _, tag := range game.Tags {
 		if tag != nil {
@@ -35,11 +37,14 @@ func newGameResponse(game models.Game) GameResponse {
 		}
 	}
 
+	_, isFav := favoriteIDs[game.ID]
+
 	return GameResponse{
 		ID:          game.ID,
 		Name:        game.Name,
 		Description: game.Description,
 		SteamURL:    game.SteamURL,
+		IsFavorite:  isFav,
 		Tags:        tagResponses,
 	}
 }
@@ -85,7 +90,7 @@ func CreateGame(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, newGameResponse(game))
+	c.JSON(http.StatusCreated, newGameResponse(game, nil)) // No favorites context on create
 }
 
 // UpdateGame godoc
@@ -140,7 +145,7 @@ func UpdateGame(c *gin.Context) {
 	// Preload tags for the response
 	database.DB.Preload("Tags").First(&game, id)
 
-	c.JSON(http.StatusOK, newGameResponse(game))
+	c.JSON(http.StatusOK, newGameResponse(game, nil)) // No favorites context on update
 }
 
 
@@ -173,9 +178,56 @@ func DeleteGame(c *gin.Context) {
 
 // region --- Public Handlers ---
 
+// ToggleFavoriteGame godoc
+// @Summary      Toggle a game in favorites
+// @Description  Adds or removes a game from the user's favorites list.
+// @Tags         games
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Game ID"
+// @Success      200 {object} map[string]bool "{"is_favorite": true}"
+// @Failure      401 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse "User or game not found"
+// @Failure      500 {object} ErrorResponse "Failed to update favorites"
+// @Router       /games/{id}/favorite [post]
+func ToggleFavoriteGame(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	gameID, _ := strconv.Atoi(c.Param("id"))
+
+	var user models.User
+	// Eagerly load just the one favorite game we care about
+	if err := database.DB.Preload("FavoriteGames", "id = ?", gameID).First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	var game models.Game
+	if err := database.DB.First(&game, gameID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Game not found"})
+		return
+	}
+
+	association := database.DB.Model(&user).Association("FavoriteGames")
+
+	// If the preload found the game, it's already a favorite
+	if len(user.FavoriteGames) > 0 {
+		if err := association.Delete(&game); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove from favorites"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"is_favorite": false})
+	} else {
+		if err := association.Append(&game); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add to favorites"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"is_favorite": true})
+	}
+}
+
 // GetGameByID godoc
 // @Summary      Get a single game by ID
-// @Description  Retrieves details for a single game, including its tags.
+// @Description  Retrieves details for a single game, including its tags and favorite status.
 // @Tags         games
 // @Produce      json
 // @Security     BearerAuth
@@ -184,6 +236,7 @@ func DeleteGame(c *gin.Context) {
 // @Failure      404 {object} ErrorResponse "Game not found"
 // @Router       /games/{id} [get]
 func GetGameByID(c *gin.Context) {
+	userID, _ := c.Get("userID")
 	id, _ := strconv.Atoi(c.Param("id"))
 	
 	var game models.Game
@@ -192,22 +245,33 @@ func GetGameByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, newGameResponse(game))
+	// Check if this game is a favorite for the current user
+	var user models.User
+	database.DB.Preload("FavoriteGames", "id = ?", id).First(&user, userID)
+	
+	favoriteIDs := make(map[uint]bool)
+	if len(user.FavoriteGames) > 0 {
+		favoriteIDs[uint(id)] = true
+	}
+
+	c.JSON(http.StatusOK, newGameResponse(game, favoriteIDs))
 }
 
 // GetGames godoc
 // @Summary      Get a list of games
-// @Description  Retrieves a paginated list of games, with optional filtering by name and tags.
+// @Description  Retrieves a paginated list of games, with optional filtering by name, tags, and favorites.
 // @Tags         games
 // @Produce      json
 // @Security     BearerAuth
 // @Param        q       query     string  false  "Search query for game name"
-// @Param        tag_ids query     []int   false  "Comma-separated list of Tag IDs" collectionFormat:"csv"
+// @Param        tag_ids query     string  false  "Comma-separated list of Tag IDs"
+// @Param        favorites_only query bool false "Return only favorite games"
 // @Param        page    query     int     false  "Page number" default(1)
 // @Param        limit   query     int     false  "Items per page" default(10)
 // @Success      200 {array} GameResponse
 // @Router       /games [get]
 func GetGames(c *gin.Context) {
+	userID, _ := c.Get("userID")
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
 		page = 1
@@ -224,9 +288,29 @@ func GetGames(c *gin.Context) {
 	offset := (page - 1) * limit
 	searchQuery := c.Query("q")
 	tagIDsStr := c.Query("tag_ids")
+	favoritesOnly, _ := strconv.ParseBool(c.Query("favorites_only"))
+
+	// Get user's favorite game IDs first for efficient checking
+	var user models.User
+	database.DB.Preload("FavoriteGames").First(&user, userID)
+	favoriteIDs := make(map[uint]bool)
+	var favGameIDs []uint
+	for _, favGame := range user.FavoriteGames {
+		favoriteIDs[favGame.ID] = true
+		favGameIDs = append(favGameIDs, favGame.ID)
+	}
 
 	var games []models.Game
 	dbQuery := database.DB.Model(&models.Game{})
+
+	// Filter by favorites only
+	if favoritesOnly {
+		if len(favGameIDs) == 0 { // If no favorites, return empty list
+			c.JSON(http.StatusOK, []GameResponse{})
+			return
+		}
+		dbQuery = dbQuery.Where("id IN (?)", favGameIDs)
+	}
 
 	// Filter by name
 	if searchQuery != "" {
@@ -243,18 +327,17 @@ func GetGames(c *gin.Context) {
 		}
 
 		if len(tagIDs) > 0 {
-			// Find games that have at least one of the specified tags
 			dbQuery = dbQuery.Joins("JOIN game_tags gt ON gt.game_id = games.id").
 				Where("gt.tag_id IN (?)", tagIDs).
-				Group("games.id") // Group by game.id to avoid duplicate games if they have multiple matching tags
+				Group("games.id")
 		}
 	}
 
-	dbQuery = dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games)
+	dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games)
 	
 	var response []GameResponse
 	for _, game := range games {
-		response = append(response, newGameResponse(game))
+		response = append(response, newGameResponse(game, favoriteIDs))
 	}
 
 	c.JSON(http.StatusOK, response)

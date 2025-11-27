@@ -37,6 +37,7 @@ type PublicUserResponse struct {
 	FollowingCount int64                      `json:"following_count"`
 	RelationToMe   *models.FriendshipStatus `json:"relation_to_me,omitempty"`
 	MeToRelation   *models.FriendshipStatus `json:"me_to_relation,omitempty"`
+	CurrentLobbyID *uint                      `json:"current_lobby_id,omitempty"`
 }
 
 // PrivateUserResponse defines the structure for the authenticated user's own profile.
@@ -47,6 +48,7 @@ type PrivateUserResponse struct {
 	FriendsCount   int64  `json:"friends_count"`
 	FollowersCount int64  `json:"followers_count"`
 	FollowingCount int64  `json:"following_count"`
+	CurrentLobbyID *uint  `json:"current_lobby_id,omitempty"`
 }
 
 // ErrorResponse represents a generic error response.
@@ -346,6 +348,7 @@ func buildPublicUserResponse(targetUser models.User, viewerID uint) PublicUserRe
 		FollowingCount: followingCount,
 		RelationToMe:   relationToMeStatus,
 		MeToRelation:   meToRelationStatus,
+		CurrentLobbyID: targetUser.CurrentLobbyID,
 	}
 }
 
@@ -367,6 +370,7 @@ func buildPrivateUserResponse(user models.User) PrivateUserResponse {
 		FriendsCount:   friendsCount,
 		FollowersCount: followersCount,
 		FollowingCount: followingCount,
+		CurrentLobbyID: user.CurrentLobbyID,
 	}
 }
 

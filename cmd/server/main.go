@@ -79,6 +79,20 @@ func main() {
 		{
 			gameRoutes.GET("", handler.GetGames)
 			gameRoutes.GET("/:id", handler.GetGameByID)
+			gameRoutes.POST("/:id/favorite", handler.ToggleFavoriteGame)
+		}
+
+		// Lobby routes (protected)
+		lobbyRoutes := apiV1.Group("/lobbies")
+		lobbyRoutes.Use(auth.AuthMiddleware())
+		{
+			lobbyRoutes.POST("", handler.CreateLobby)
+			lobbyRoutes.GET("", handler.SearchLobbies)
+			lobbyRoutes.GET("/:id", handler.GetLobbyByID)
+			lobbyRoutes.POST("/:id/join", handler.JoinLobby)
+			lobbyRoutes.POST("/leave", handler.LeaveLobby) // No ID needed, user leaves their own lobby
+			lobbyRoutes.PUT("/:id", handler.UpdateLobby)
+			lobbyRoutes.DELETE("/:id/members/:userID", handler.KickMember)
 		}
 
 		// Admin routes (protected by auth and admin check)
