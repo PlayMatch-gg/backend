@@ -315,7 +315,12 @@ func GetMe(c *gin.Context) {
 func buildPublicUserResponse(targetUser models.User, viewerID uint) PublicUserResponse {
 	// These counts can be optimized later if performance is an issue
 	var friendsCount, followersCount, followingCount int64
-	database.DB.Model(&models.UserRelation{}).Where("to_user_id = ? AND status = ?", targetUser.ID, models.StatusAccepted).Count(&friendsCount)
+	database.DB.Model(&models.UserRelation{}).Where(
+		"status = ? AND (from_user_id = ? OR to_user_id = ?)",
+		models.StatusAccepted,
+		targetUser.ID,
+		targetUser.ID,
+	).Count(&friendsCount)
 	database.DB.Model(&models.UserRelation{}).Where("to_user_id = ? AND status = ?", targetUser.ID, models.StatusPending).Count(&followersCount)
 	database.DB.Model(&models.UserRelation{}).Where("from_user_id = ? AND status = ?", targetUser.ID, models.StatusPending).Count(&followingCount)
 
@@ -346,7 +351,12 @@ func buildPublicUserResponse(targetUser models.User, viewerID uint) PublicUserRe
 
 func buildPrivateUserResponse(user models.User) PrivateUserResponse {
 	var friendsCount, followersCount, followingCount int64
-	database.DB.Model(&models.UserRelation{}).Where("to_user_id = ? AND status = ?", user.ID, models.StatusAccepted).Count(&friendsCount)
+	database.DB.Model(&models.UserRelation{}).Where(
+		"status = ? AND (from_user_id = ? OR to_user_id = ?)",
+		models.StatusAccepted,
+		user.ID,
+		user.ID,
+	).Count(&friendsCount)
 	database.DB.Model(&models.UserRelation{}).Where("to_user_id = ? AND status = ?", user.ID, models.StatusPending).Count(&followersCount)
 	database.DB.Model(&models.UserRelation{}).Where("from_user_id = ? AND status = ?", user.ID, models.StatusPending).Count(&followingCount)
 
