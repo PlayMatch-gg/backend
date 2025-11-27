@@ -14,6 +14,7 @@ import (
 
 	// Swagger imports
 	_ "playmatch/backend/docs" // This is important for swag to find the generated docs
+
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )

@@ -110,7 +110,7 @@ func CreateLobby(c *gin.Context) {
 	}
 
 	tx.Commit()
-	
+
 	// Reload lobby with all associations
 	database.DB.Preload("Game").Preload("Host").Preload("Members").First(&lobby, lobby.ID)
 
@@ -239,7 +239,7 @@ func LeaveLobby(c *gin.Context) {
 	}
 
 	lobby := user.CurrentLobby
-	
+
 	// Use transaction for leaving logic
 	tx := database.DB.Begin()
 
@@ -249,7 +249,7 @@ func LeaveLobby(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to leave lobby"})
 		return
 	}
-	
+
 	// If the user was the last one, delete the lobby
 	if len(lobby.Members) == 1 && lobby.Members[0].ID == user.ID {
 		if err := tx.Delete(&lobby).Error; err != nil {
@@ -305,7 +305,7 @@ func UpdateLobby(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the host can update the lobby"})
 		return
 	}
-	
+
 	var input LobbyInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -350,7 +350,7 @@ func KickMember(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the host can kick members"})
 		return
 	}
-	
+
 	if lobby.HostID == uint(memberToKickID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Host cannot kick themselves"})
 		return

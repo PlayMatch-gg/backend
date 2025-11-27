@@ -30,14 +30,14 @@ type LoginInput struct {
 
 // PublicUserResponse defines the structure for a user's public profile.
 type PublicUserResponse struct {
-	ID             uint                       `json:"id" example:"1"`
-	Nickname       string                     `json:"nickname" example:"testuser"`
-	FriendsCount   int64                      `json:"friends_count"`
-	FollowersCount int64                      `json:"followers_count"`
-	FollowingCount int64                      `json:"following_count"`
+	ID             uint                     `json:"id" example:"1"`
+	Nickname       string                   `json:"nickname" example:"testuser"`
+	FriendsCount   int64                    `json:"friends_count"`
+	FollowersCount int64                    `json:"followers_count"`
+	FollowingCount int64                    `json:"following_count"`
 	RelationToMe   *models.FriendshipStatus `json:"relation_to_me,omitempty"`
 	MeToRelation   *models.FriendshipStatus `json:"me_to_relation,omitempty"`
-	CurrentLobbyID *uint                      `json:"current_lobby_id,omitempty"`
+	CurrentLobbyID *uint                    `json:"current_lobby_id,omitempty"`
 }
 
 // PrivateUserResponse defines the structure for the authenticated user's own profile.
@@ -229,7 +229,7 @@ func SearchUsers(c *gin.Context) {
 		}
 		userResponses[i] = buildPublicUserResponse(user, viewerID.(uint))
 	}
-	
+
 	// Filter out the empty entry for the viewer
 	finalResponses := []PublicUserResponse{}
 	for _, res := range userResponses {
@@ -237,7 +237,6 @@ func SearchUsers(c *gin.Context) {
 			finalResponses = append(finalResponses, res)
 		}
 	}
-
 
 	c.JSON(http.StatusOK, PaginatedUserResponse{
 		Data: finalResponses,

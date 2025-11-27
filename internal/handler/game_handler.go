@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
 // ... (keep existing DTOs)
 
 // region --- DTOs ---
@@ -121,13 +122,13 @@ func UpdateGame(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Find new tags
 	var tags []*models.Tag
 	if len(input.TagIDs) > 0 {
 		database.DB.Find(&tags, input.TagIDs)
 	}
-	
+
 	// Update game fields
 	game.Name = input.Name
 	game.Description = input.Description
@@ -138,16 +139,15 @@ func UpdateGame(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tags for game"})
 		return
 	}
-	
+
 	// Save the updated game model itself
 	database.DB.Save(&game)
-	
+
 	// Preload tags for the response
 	database.DB.Preload("Tags").First(&game, id)
 
 	c.JSON(http.StatusOK, newGameResponse(game, nil)) // No favorites context on update
 }
-
 
 // DeleteGame godoc
 // @Summary      Delete a game
@@ -163,7 +163,7 @@ func UpdateGame(c *gin.Context) {
 // @Router       /admin/games/{id} [delete]
 func DeleteGame(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	
+
 	result := database.DB.Select("Tags").Delete(&models.Game{}, id)
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Game not found"})
@@ -172,7 +172,6 @@ func DeleteGame(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Game deleted"})
 }
-
 
 // endregion
 
@@ -238,7 +237,7 @@ func ToggleFavoriteGame(c *gin.Context) {
 func GetGameByID(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id, _ := strconv.Atoi(c.Param("id"))
-	
+
 	var game models.Game
 	if err := database.DB.Preload("Tags").First(&game, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Game not found"})
@@ -248,7 +247,7 @@ func GetGameByID(c *gin.Context) {
 	// Check if this game is a favorite for the current user
 	var user models.User
 	database.DB.Preload("FavoriteGames", "id = ?", id).First(&user, userID)
-	
+
 	favoriteIDs := make(map[uint]bool)
 	if len(user.FavoriteGames) > 0 {
 		favoriteIDs[uint(id)] = true
@@ -334,7 +333,7 @@ func GetGames(c *gin.Context) {
 	}
 
 	dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games)
-	
+
 	var response []GameResponse
 	for _, game := range games {
 		response = append(response, newGameResponse(game, favoriteIDs))
@@ -355,4 +354,5 @@ func splitCommaSeparated(s string) []string {
 	}
 	return result
 }
+
 // endregion

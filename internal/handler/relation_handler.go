@@ -74,7 +74,7 @@ func GetUserRelationsByID(c *gin.Context) {
 		} else { // outgoing
 			userInRelation = r.ToUser
 		}
-		
+
 		if userInRelation.ID == 0 {
 			continue
 		}
@@ -148,7 +148,7 @@ func GetRelations(c *gin.Context) {
 		if targetUser.ID == 0 {
 			continue
 		}
-		
+
 		userResponses = append(userResponses, buildPublicUserResponse(targetUser, viewerID.(uint)))
 	}
 

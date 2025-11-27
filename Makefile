@@ -1,4 +1,4 @@
-.PHONY: db-up db-down swag-gen run dev clean
+.PHONY: db-up db-down swag-gen run dev clean format lint
 
 # Start all docker-compose services (PostgreSQL and Adminer)
 db-up:
@@ -22,6 +22,16 @@ run: swag-gen
 dev: swag-gen
 	@echo "Starting development server..."
 	go run ./cmd/server
+
+# Format the code
+format:
+	@echo "Formatting code..."
+	go run golang.org/x/tools/cmd/goimports@latest -w .
+
+# Lint the code
+lint: format
+	@echo "Linting code..."
+	go vet ./...
 
 # Clean generated files
 clean:

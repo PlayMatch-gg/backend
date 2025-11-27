@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
 // AuthMiddleware creates a gin middleware for JWT authentication.
@@ -27,8 +27,8 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		tokenString := parts[1]
 
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		token, err := gojwt.Parse(tokenString, func(token *gojwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*gojwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return []byte(config.AppConfig.JWTSecret), nil
@@ -39,7 +39,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
 			// Extract user ID from claims
 			userIDFloat, ok := claims["sub"].(float64)
 			if !ok {
