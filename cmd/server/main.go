@@ -72,6 +72,36 @@ func main() {
 			userRoutes.POST("/:id/decline", handler.DeclineRequest)
 			userRoutes.POST("/:id/remove", handler.RemoveRelation)
 		}
+
+		// Public Game routes (protected)
+		gameRoutes := apiV1.Group("/games")
+		gameRoutes.Use(auth.AuthMiddleware())
+		{
+			gameRoutes.GET("", handler.GetGames)
+			gameRoutes.GET("/:id", handler.GetGameByID)
+		}
+
+		// Admin routes (protected by auth and admin check)
+		adminRoutes := apiV1.Group("/admin")
+		adminRoutes.Use(auth.AuthMiddleware(), auth.AdminMiddleware())
+		{
+			// Tags CRUD
+			tags := adminRoutes.Group("/tags")
+			{
+				tags.POST("", handler.CreateTag)
+				tags.GET("", handler.GetTags)
+				tags.PUT("/:id", handler.UpdateTag)
+				tags.DELETE("/:id", handler.DeleteTag)
+			}
+
+			// Games CRUD (admin-only parts)
+			adminGameRoutes := adminRoutes.Group("/games")
+			{
+				adminGameRoutes.POST("", handler.CreateGame)
+				adminGameRoutes.PUT("/:id", handler.UpdateGame)
+				adminGameRoutes.DELETE("/:id", handler.DeleteGame)
+			}
+		}
 	}
 
 	fmt.Println("Server is running on :8080")

@@ -8,4 +8,5 @@ type User struct {
 	Nickname     string `gorm:"size:255;unique;not null"`
 	Email        string `gorm:"size:255;unique;not null"`
 	PasswordHash string `gorm:"size:255;not null"`
+	Role         string `gorm:"size:50;not null;default:'user';index"`
 }

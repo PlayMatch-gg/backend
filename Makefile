@@ -1,12 +1,12 @@
 .PHONY: db-up db-down swag-gen run dev clean
 
-# Start PostgreSQL database
+# Start all docker-compose services (PostgreSQL and Adminer)
 db-up:
-	docker-compose up -d db
+	docker-compose up -d
 
-# Stop PostgreSQL database
+# Stop all docker-compose services
 db-down:
-	docker-compose down db
+	docker-compose down
 
 # Generate Swagger documentation
 swag-gen:

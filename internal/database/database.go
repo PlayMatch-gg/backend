@@ -38,7 +38,7 @@ func Connect(dsn string) {
 	log.Println("Database connection established.")
 
 	// Run migrations
-	err = DB.AutoMigrate(&models.User{}, &models.UserRelation{})
+	err = DB.AutoMigrate(&models.User{}, &models.UserRelation{}, &models.Game{}, &models.Tag{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
