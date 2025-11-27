@@ -1,0 +1,46 @@
+# Binaries for programs and plugins
+*.exe
+*.darwin-amd64
+*.darwin-arm64
+*.linux-amd64
+*.linux-arm64
+*.windows-amd64
+*.windows-arm64
+*.dll
+*.so
+*.dylib
+*.wasm
+
+# Test binary, generated with `go test -c`
+*.test
+
+
+# IDE-specific directories
+.idea/
+.vscode/
+.DS_Store
+
+# Environment files
+.env
+.env.local
+
+# Build outputs
+/bin/
+/dist/
+/build/
+
+# Go module cache
+/pkg/mod/
+
+# Log files
+*.log
+
+# Database files
+*.db
+*.sqlite
+
+# Dotenv files
+.env*
+
+# Swagger docs
+/docs/
