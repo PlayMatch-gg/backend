@@ -94,6 +94,11 @@ func main() {
 			lobbyRoutes.POST("/leave", handler.LeaveLobby) // No ID needed, user leaves their own lobby
 			lobbyRoutes.PUT("/:id", handler.UpdateLobby)
 			lobbyRoutes.DELETE("/:id/members/:userID", handler.KickMember)
+
+			// Chat and Events
+			lobbyRoutes.GET("/:id/events", handler.SubscribeToLobbyEvents)
+			lobbyRoutes.POST("/:id/messages", handler.PostMessage)
+			lobbyRoutes.GET("/:id/messages", handler.GetMessages)
 		}
 
 		// Admin routes (protected by auth and admin check)
