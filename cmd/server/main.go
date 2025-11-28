@@ -14,6 +14,7 @@ import (
 
 	// Swagger imports
 	_ "playmatch/backend/docs" // This is important for swag to find the generated docs
+
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -79,6 +80,25 @@ func main() {
 		{
 			gameRoutes.GET("", handler.GetGames)
 			gameRoutes.GET("/:id", handler.GetGameByID)
+			gameRoutes.POST("/:id/favorite", handler.ToggleFavoriteGame)
+		}
+
+		// Lobby routes (protected)
+		lobbyRoutes := apiV1.Group("/lobbies")
+		lobbyRoutes.Use(auth.AuthMiddleware())
+		{
+			lobbyRoutes.POST("", handler.CreateLobby)
+			lobbyRoutes.GET("", handler.SearchLobbies)
+			lobbyRoutes.GET("/:id", handler.GetLobbyByID)
+			lobbyRoutes.POST("/:id/join", handler.JoinLobby)
+			lobbyRoutes.POST("/leave", handler.LeaveLobby) // No ID needed, user leaves their own lobby
+			lobbyRoutes.PUT("/:id", handler.UpdateLobby)
+			lobbyRoutes.DELETE("/:id/members/:userID", handler.KickMember)
+
+			// Chat and Events
+			lobbyRoutes.GET("/:id/events", handler.SubscribeToLobbyEvents)
+			lobbyRoutes.POST("/:id/messages", handler.PostMessage)
+			lobbyRoutes.GET("/:id/messages", handler.GetMessages)
 		}
 
 		// Admin routes (protected by auth and admin check)
