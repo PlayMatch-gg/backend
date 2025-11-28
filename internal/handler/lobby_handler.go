@@ -444,85 +444,98 @@ func JoinLobby(c *gin.Context) {
 // @Router       /lobbies/leave [post]
 func LeaveLobby(c *gin.Context) {
 	userID, _ := c.Get("userID")
-
 	var user models.User
-	if err := database.DB.Preload("CurrentLobby.Members").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+	if err := database.DB.Preload("CurrentLobby").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
 		return
 	}
-
+	
+	lobbyID := *user.CurrentLobbyID
 	lobby := user.CurrentLobby
 
 	// Use transaction for leaving logic
 	tx := database.DB.Begin()
-
-	// User leaves the lobby
-	if err := tx.Model(&user).Update("current_lobby_id", nil).Error; err != nil {
+	
+	// User leaves the lobby - use Updates with map or struct tag to set NULL
+	if err := tx.Model(&user).Select("CurrentLobbyID").Updates(map[string]interface{}{"current_lobby_id": nil}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to leave lobby"})
 		return
 	}
-
+	
+	// NOW load remaining members (after current user left)
+	var remainingMembers []models.User
+	if err := tx.Where("current_lobby_id = ?", lobbyID).Find(&remainingMembers).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check lobby members"})
+		return
+	}
+	
 	// Post system message for user leaving
 	systemMessage := models.Message{
-		LobbyID: lobby.ID,
-		UserID:  nil, // System message
+		LobbyID: lobbyID,
+		UserID:  nil,
 		Type:    models.MessageTypeSystem,
 		Content: fmt.Sprintf("User %s left the lobby.", user.Nickname),
 	}
-	tx.Create(&systemMessage) // Part of transaction
-
-	// If the user was the last one, delete the lobby
-	if len(lobby.Members) == 1 && lobby.Members[0].ID == user.ID {
+	tx.Create(&systemMessage)
+	
+	// If no one is left, delete the lobby
+	if len(remainingMembers) == 0 {
 		if err := tx.Delete(&lobby).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete empty lobby"})
 			return
 		}
-		// Broadcast lobby deleted event
-		hub.GlobalHub.Broadcast(lobby.ID, hub.Event{
+		
+		if err := tx.Commit().Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction commit failed"})
+			return
+		}
+		
+		hub.GlobalHub.Broadcast(lobbyID, hub.Event{
 			Type:    "lobby_deleted",
-			Payload: gin.H{"lobby_id": lobby.ID},
+			Payload: gin.H{"lobby_id": lobbyID},
 		})
-	} else if lobby.HostID == user.ID { // If the user was the host, promote the next member
-		var nextHost models.User
-		for _, member := range lobby.Members {
-			if member.ID != user.ID {
-				nextHost = member
-				break
-			}
-		}
-		if nextHost.ID != 0 {
-			if err := tx.Model(&lobby).Update("host_id", nextHost.ID).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to transfer host"})
-				return
-			}
-			// Post system message for new host
-			newHostMessage := models.Message{
-				LobbyID: lobby.ID,
-				UserID:  nil, // System message
-				Type:    models.MessageTypeSystem,
-				Content: fmt.Sprintf("User %s is now the host.", nextHost.Nickname),
-			}
-			tx.Create(&newHostMessage)
-
-			// Broadcast new host event
-			hub.GlobalHub.Broadcast(lobby.ID, hub.Event{
-				Type:    "host_changed",
-				Payload: buildPublicUserResponse(nextHost, 0),
-			})
-		}
+		
+		c.JSON(http.StatusOK, gin.H{"message": "Left lobby successfully"})
+		return
 	}
-
-	tx.Commit()
-
-	// Broadcast user left event
-	hub.GlobalHub.Broadcast(lobby.ID, hub.Event{
+	
+	// If the user was the host, promote the next member
+	if lobby.HostID == user.ID {
+		nextHost := remainingMembers[0]
+		
+		if err := tx.Model(&lobby).Update("host_id", nextHost.ID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to transfer host"})
+			return
+		}
+		
+		newHostMessage := models.Message{
+			LobbyID: lobbyID,
+			UserID:  nil,
+			Type:    models.MessageTypeSystem,
+			Content: fmt.Sprintf("User %s is now the host.", nextHost.Nickname),
+		}
+		tx.Create(&newHostMessage)
+		
+		hub.GlobalHub.Broadcast(lobbyID, hub.Event{
+			Type:    "host_changed",
+			Payload: buildPublicUserResponse(nextHost, 0),
+		})
+	}
+	
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction commit failed"})
+		return
+	}
+	
+	hub.GlobalHub.Broadcast(lobbyID, hub.Event{
 		Type:    "user_left",
 		Payload: buildPublicUserResponse(user, 0),
 	})
-
+	
 	c.JSON(http.StatusOK, gin.H{"message": "Left lobby successfully"})
 }
 
