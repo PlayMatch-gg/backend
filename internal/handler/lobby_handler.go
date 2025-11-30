@@ -260,6 +260,38 @@ func GetMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, NewPaginatedResponse(response, totalItems, page, limit))
 }
 
+// PostUserTyping godoc
+// @Summary      Signal that the user is typing in their current lobby
+// @Description  Broadcasts an SSE event to all members of the user's current lobby, indicating that the user is typing.
+// @Tags         lobbies-chat
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]string "{"message": "Typing signal sent"}"
+// @Failure      401 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse "User is not in a lobby"
+// @Router       /lobbies/me/typing [post]
+func PostUserTyping(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	var user models.User
+	if err := database.DB.Preload("CurrentLobby").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
+		return
+	}
+	lobbyID := *user.CurrentLobbyID
+
+	// Broadcast typing event
+	hub.GlobalHub.Broadcast(lobbyID, hub.Event{
+		Type: "user_typing",
+		Payload: map[string]interface{}{
+			"user_id": user.ID,
+			"nickname": user.Nickname,
+		},
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Typing signal sent"})
+}
+
 // CreateLobby godoc
 // @Summary      Create a new lobby
 // @Description  Creates a new lobby, making the creator the host.

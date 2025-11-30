@@ -134,6 +134,8 @@ func main() {
 		        						meLobbyRoutes.POST("/messages", handler.PostMessage)
 		        
 		        						meLobbyRoutes.GET("/messages", handler.GetMessages)
+
+										meLobbyRoutes.POST("/typing", handler.PostUserTyping)
 		        
 		        					}
 		        
