@@ -57,51 +57,103 @@ func main() {
 			authRoutes.POST("/login", handler.LoginUser)
 		}
 
-		// User routes (protected)
-		userRoutes := apiV1.Group("/users")
-		userRoutes.Use(auth.AuthMiddleware())
-		{
-			userRoutes.GET("", handler.SearchUsers) // Must be before /:id
-			userRoutes.GET("/me", handler.GetMe)
-			userRoutes.GET("/me/relations", handler.GetRelations)
-			userRoutes.GET("/:id", handler.GetUserByID)
-			userRoutes.GET("/:id/relations", handler.GetUserRelationsByID)
-
-			// Friendship routes
-			userRoutes.POST("/:id/request", handler.SendRequest)
-			userRoutes.POST("/:id/accept", handler.AcceptRequest)
-			userRoutes.POST("/:id/decline", handler.DeclineRequest)
-			userRoutes.POST("/:id/remove", handler.RemoveRelation)
-		}
-
-		// Public Game routes (protected)
-		gameRoutes := apiV1.Group("/games")
-		gameRoutes.Use(auth.AuthMiddleware())
-		{
-			gameRoutes.GET("", handler.GetGames)
-			gameRoutes.GET("/:id", handler.GetGameByID)
-			gameRoutes.POST("/:id/favorite", handler.ToggleFavoriteGame)
-		}
-
-		// Lobby routes (protected)
-		lobbyRoutes := apiV1.Group("/lobbies")
-		lobbyRoutes.Use(auth.AuthMiddleware())
-		{
-			lobbyRoutes.POST("", handler.CreateLobby)
-			lobbyRoutes.GET("", handler.SearchLobbies)
-			lobbyRoutes.GET("/:id", handler.GetLobbyByID)
-			lobbyRoutes.POST("/:id/join", handler.JoinLobby)
-			lobbyRoutes.POST("/leave", handler.LeaveLobby) // No ID needed, user leaves their own lobby
-			lobbyRoutes.PUT("/:id", handler.UpdateLobby)
-			lobbyRoutes.DELETE("/:id/members/:userID", handler.KickMember)
-
-			// Chat and Events
-			lobbyRoutes.GET("/:id/events", handler.SubscribeToLobbyEvents)
-			lobbyRoutes.POST("/:id/messages", handler.PostMessage)
-			lobbyRoutes.GET("/:id/messages", handler.GetMessages)
-		}
-
-		// Admin routes (protected by auth and admin check)
+		        		// User routes
+		        		userRoutes := apiV1.Group("/users")
+		        		userRoutes.Use(auth.OptionalAuthMiddleware()) // Use optional auth for public user data
+		        		{
+		        			userRoutes.GET("", handler.SearchUsers) // Must be before /:id
+		        			userRoutes.GET("/:id", handler.GetUserByID)
+		        
+		        			// Protected user routes
+		        			protectedUserRoutes := userRoutes.Group("")
+		        			protectedUserRoutes.Use(auth.AuthMiddleware())
+		        			{
+		        				protectedUserRoutes.GET("/me", handler.GetMe)
+		        				protectedUserRoutes.GET("/me/relations", handler.GetRelations)
+		        				protectedUserRoutes.GET("/:id/relations", handler.GetUserRelationsByID)
+		        
+		        				// Friendship routes
+		        				protectedUserRoutes.POST("/:id/request", handler.SendRequest)
+		        				protectedUserRoutes.POST("/:id/accept", handler.AcceptRequest)
+		        				protectedUserRoutes.POST("/:id/decline", handler.DeclineRequest)
+		        				protectedUserRoutes.POST("/:id/remove", handler.RemoveRelation)
+		        			}
+		        		}
+		        
+		        		// Game routes
+		        		gameRoutes := apiV1.Group("/games")
+		        		gameRoutes.Use(auth.OptionalAuthMiddleware()) // Use optional auth for public game data
+		        		{
+		        			gameRoutes.GET("", handler.GetGames)
+		        			gameRoutes.GET("/:id", handler.GetGameByID)
+		        
+		        			// Protected game routes
+		        			protectedGameRoutes := gameRoutes.Group("")
+		        			protectedGameRoutes.Use(auth.AuthMiddleware())
+		        			{
+		        				protectedGameRoutes.POST("/:id/favorite", handler.ToggleFavoriteGame)
+		        			}
+		        		}
+		        
+		        				// Lobby routes
+		        
+		        				lobbyRoutes := apiV1.Group("/lobbies")
+		        
+		        				lobbyRoutes.Use(auth.OptionalAuthMiddleware()) // Use optional auth for public lobby data
+		        
+		        				{
+		        
+		        					lobbyRoutes.GET("", handler.SearchLobbies)
+		        
+		        					lobbyRoutes.GET("/:id", handler.GetLobbyByID)
+		        
+		        					
+		        
+		        					// Protected lobby routes for the current user
+		        
+		        					meLobbyRoutes := lobbyRoutes.Group("/me")
+		        
+		        					meLobbyRoutes.Use(auth.AuthMiddleware())
+		        
+		        					{
+		        
+		        						meLobbyRoutes.GET("", handler.GetMyLobby)
+		        
+		        						meLobbyRoutes.PUT("", handler.UpdateLobby)
+		        
+		        						meLobbyRoutes.POST("/leave", handler.LeaveLobby)
+		        
+		        						meLobbyRoutes.DELETE("/members/:userID", handler.KickMember)
+		        
+		        		
+		        
+		        						// Chat and Events
+		        
+		        						meLobbyRoutes.GET("/events", handler.SubscribeToLobbyEvents)
+		        
+		        						meLobbyRoutes.POST("/messages", handler.PostMessage)
+		        
+		        						meLobbyRoutes.GET("/messages", handler.GetMessages)
+		        
+		        					}
+		        
+		        		
+		        
+		        					// Other protected lobby routes
+		        
+		        					protectedLobbyRoutes := lobbyRoutes.Group("")
+		        
+		        					protectedLobbyRoutes.Use(auth.AuthMiddleware())
+		        
+		        					{
+		        
+		        						protectedLobbyRoutes.POST("", handler.CreateLobby)
+		        
+		        						protectedLobbyRoutes.POST("/:id/join", handler.JoinLobby)
+		        
+		        					}
+		        
+		        				}		// Admin routes (protected by auth and admin check)
 		adminRoutes := apiV1.Group("/admin")
 		adminRoutes.Use(auth.AuthMiddleware(), auth.AdminMiddleware())
 		{

@@ -175,7 +175,12 @@ func LoginUser(c *gin.Context) {
 // @Failure      401   {object}  ErrorResponse
 // @Router       /users [get]
 func SearchUsers(c *gin.Context) {
-	viewerID, _ := c.Get("userID")
+	viewerIDRaw, viewerOk := c.Get("userID")
+	var viewerID uint
+	if viewerOk {
+		viewerID = viewerIDRaw.(uint)
+	}
+
 	searchQuery := c.Query("q")
 
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -214,21 +219,13 @@ func SearchUsers(c *gin.Context) {
 	}
 
 	// Build response
-	userResponses := make([]PublicUserResponse, len(users))
-	for i, user := range users {
+	var finalResponses []PublicUserResponse
+	for _, user := range users {
 		// Don't show the viewer in the search results
-		if user.ID == viewerID.(uint) {
+		if viewerOk && user.ID == viewerID {
 			continue
 		}
-		userResponses[i] = buildPublicUserResponse(user, viewerID.(uint))
-	}
-
-	// Filter out the empty entry for the viewer
-	finalResponses := []PublicUserResponse{}
-	for _, res := range userResponses {
-		if res.ID != 0 {
-			finalResponses = append(finalResponses, res)
-		}
+		finalResponses = append(finalResponses, buildPublicUserResponse(user, viewerID))
 	}
 
 	c.JSON(http.StatusOK, NewPaginatedResponse(finalResponses, totalItems, page, limit))
@@ -247,7 +244,12 @@ func SearchUsers(c *gin.Context) {
 // @Failure      404  {object}  ErrorResponse
 // @Router       /users/{id} [get]
 func GetUserByID(c *gin.Context) {
-	viewerID, _ := c.Get("userID")
+	viewerIDRaw, viewerOk := c.Get("userID")
+	var viewerID uint
+	if viewerOk {
+		viewerID = viewerIDRaw.(uint)
+	}
+
 	targetUserIDStr := c.Param("id")
 	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 32)
 	if err != nil {
@@ -256,7 +258,7 @@ func GetUserByID(c *gin.Context) {
 	}
 
 	// If target is the same as viewer, redirect to /me
-	if viewerID.(uint) == uint(targetUserID) {
+	if viewerOk && viewerID == uint(targetUserID) {
 		GetMe(c)
 		return
 	}
@@ -267,7 +269,7 @@ func GetUserByID(c *gin.Context) {
 		return
 	}
 
-	response := buildPublicUserResponse(targetUser, viewerID.(uint))
+	response := buildPublicUserResponse(targetUser, viewerID)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -310,18 +312,19 @@ func buildPublicUserResponse(targetUser models.User, viewerID uint) PublicUserRe
 	database.DB.Model(&models.UserRelation{}).Where("to_user_id = ? AND status = ?", targetUser.ID, models.StatusPending).Count(&followersCount)
 	database.DB.Model(&models.UserRelation{}).Where("from_user_id = ? AND status = ?", targetUser.ID, models.StatusPending).Count(&followingCount)
 
-	// Get relationship status between viewer and target
-	var relationToMe, meToRelation models.UserRelation
+	// Get relationship status between viewer and target, only if a viewer is present
 	var relationToMeStatus, meToRelationStatus *models.FriendshipStatus
+	if viewerID != 0 {
+		var relationToMe, meToRelation models.UserRelation
+		err := database.DB.Where("from_user_id = ? AND to_user_id = ?", targetUser.ID, viewerID).First(&relationToMe).Error
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			relationToMeStatus = &relationToMe.Status
+		}
 
-	err := database.DB.Where("from_user_id = ? AND to_user_id = ?", targetUser.ID, viewerID).First(&relationToMe).Error
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		relationToMeStatus = &relationToMe.Status
-	}
-
-	err = database.DB.Where("from_user_id = ? AND to_user_id = ?", viewerID, targetUser.ID).First(&meToRelation).Error
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		meToRelationStatus = &meToRelation.Status
+		err = database.DB.Where("from_user_id = ? AND to_user_id = ?", viewerID, targetUser.ID).First(&meToRelation).Error
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			meToRelationStatus = &meToRelation.Status
+		}
 	}
 
 	return PublicUserResponse{

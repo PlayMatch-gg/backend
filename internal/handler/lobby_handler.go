@@ -103,33 +103,31 @@ func newMessageResponse(message models.Message) MessageResponse {
 // --- Chat/Event Handlers ---
 
 // SubscribeToLobbyEvents godoc
-// @Summary      Subscribe to lobby events (SSE)
-// @Description  Establishes a Server-Sent Events connection to receive real-time updates for a lobby.
+// @Summary      Subscribe to my lobby events (SSE)
+// @Description  Establishes a Server-Sent Events connection to receive real-time updates for the current user's lobby.
 // @Tags         lobbies-chat
 // @Produce      text/event-stream
 // @Security     BearerAuth
-// @Param        id   path      int  true  "Lobby ID"
 // @Success      200 {string} string "Event stream"
 // @Failure      401 {object} ErrorResponse
-// @Failure      403 {object} ErrorResponse "Not a member of this lobby"
-// @Failure      404 {object} ErrorResponse "Lobby not found"
-// @Router       /lobbies/{id}/events [get]
+// @Failure      404 {object} ErrorResponse "User is not in a lobby"
+// @Router       /lobbies/me/events [get]
 func SubscribeToLobbyEvents(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	lobbyID, _ := strconv.Atoi(c.Param("id"))
 
 	// Check if user is a member of the lobby
 	var user models.User
-	if err := database.DB.Preload("CurrentLobby").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil || *user.CurrentLobbyID != uint(lobbyID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this lobby or lobby not found"})
+	if err := database.DB.First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "User is not in a lobby"})
 		return
 	}
+	lobbyID := *user.CurrentLobbyID
 
 	clientChan := make(hub.Client)
-	hub.GlobalHub.Subscribe(uint(lobbyID), clientChan)
+	hub.GlobalHub.Subscribe(lobbyID, clientChan)
 
 	defer func() {
-		hub.GlobalHub.Unsubscribe(uint(lobbyID), clientChan)
+		hub.GlobalHub.Unsubscribe(lobbyID, clientChan)
 	}()
 
 	c.Stream(func(w io.Writer) bool { // Changed from http.ResponseWriter to io.Writer
@@ -144,31 +142,28 @@ func SubscribeToLobbyEvents(c *gin.Context) {
 }
 
 // PostMessage godoc
-// @Summary      Post a message to lobby chat
-// @Description  Sends a new chat message to the specified lobby.
+// @Summary      Post a message to my lobby chat
+// @Description  Sends a new chat message to the user's current lobby.
 // @Tags         lobbies-chat
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id    path      int            true  "Lobby ID"
 // @Param        input body      MessageInput true  "Message Content"
 // @Success      201   {object}  MessageResponse
 // @Failure      400   {object}  ErrorResponse
 // @Failure      401   {object}  ErrorResponse
-// @Failure      403   {object}  ErrorResponse "Not a member of this lobby"
-// @Failure      404   {object}  ErrorResponse "Lobby not found"
+// @Failure      404   {object}  ErrorResponse "User is not in a lobby"
 // @Failure      500   {object}  ErrorResponse
-// @Router       /lobbies/{id}/messages [post]
+// @Router       /lobbies/me/messages [post]
 func PostMessage(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	lobbyID, _ := strconv.Atoi(c.Param("id"))
 
-	// Check if user is a member of the lobby
 	var user models.User
-	if err := database.DB.Preload("CurrentLobby").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil || *user.CurrentLobbyID != uint(lobbyID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this lobby or lobby not found"})
+	if err := database.DB.First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
 		return
 	}
+	lobbyID := *user.CurrentLobbyID
 
 	var input MessageInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -177,7 +172,7 @@ func PostMessage(c *gin.Context) {
 	}
 
 	newMessage := models.Message{
-		LobbyID: uint(lobbyID),
+		LobbyID: lobbyID,
 		UserID:  &user.ID, // User-sent message
 		Type:    models.MessageTypeText,
 		Content: input.Content,
@@ -192,7 +187,7 @@ func PostMessage(c *gin.Context) {
 	database.DB.Preload("User").First(&newMessage, newMessage.ID)
 
 	// Broadcast new message event
-	hub.GlobalHub.Broadcast(uint(lobbyID), hub.Event{
+	hub.GlobalHub.Broadcast(lobbyID, hub.Event{
 		Type:    "new_message",
 		Payload: newMessageResponse(newMessage),
 	})
@@ -201,29 +196,26 @@ func PostMessage(c *gin.Context) {
 }
 
 // GetMessages godoc
-// @Summary      Get lobby chat messages
-// @Description  Retrieves a paginated history of messages for a specific lobby.
+// @Summary      Get my lobby chat messages
+// @Description  Retrieves a paginated history of messages for the user's current lobby.
 // @Tags         lobbies-chat
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id   path      int  true  "Lobby ID"
 // @Param        page query     int  false "Page number" default(1)
 // @Param        limit query    int  false "Items per page" default(50)
 // @Success      200 {object} PaginatedMessageResponse
 // @Failure      401 {object} ErrorResponse
-// @Failure      403 {object} ErrorResponse "Not a member of this lobby"
-// @Failure      404 {object} ErrorResponse "Lobby not found"
-// @Router       /lobbies/{id}/messages [get]
+// @Failure      404 {object} ErrorResponse "User is not in a lobby"
+// @Router       /lobbies/me/messages [get]
 func GetMessages(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	lobbyID, _ := strconv.Atoi(c.Param("id"))
 
-	// Check if user is a member of the lobby
 	var user models.User
-	if err := database.DB.Preload("CurrentLobby").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil || *user.CurrentLobbyID != uint(lobbyID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this lobby or lobby not found"})
+	if err := database.DB.First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
 		return
 	}
+	lobbyID := *user.CurrentLobbyID
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if page < 1 {
@@ -439,6 +431,26 @@ func GetLobbyByID(c *gin.Context) {
 	c.JSON(http.StatusOK, newLobbyResponse(lobby))
 }
 
+// GetMyLobby godoc
+// @Summary      Get my lobby
+// @Description  Gets full details for the current user's lobby.
+// @Tags         lobbies
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} LobbyResponse
+// @Failure      404 {object} ErrorResponse "User is not in a lobby"
+// @Router       /lobbies/me [get]
+func GetMyLobby(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var user models.User
+	if err := database.DB.Preload("CurrentLobby.Game").Preload("CurrentLobby.Host").Preload("CurrentLobby.Members").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
+		return
+	}
+
+	c.JSON(http.StatusOK, newLobbyResponse(*user.CurrentLobby))
+}
+
 // JoinLobby godoc
 // @Summary      Join a lobby
 // @Description  Joins a lobby if not full and the user is not already in another lobby.
@@ -496,14 +508,14 @@ func JoinLobby(c *gin.Context) {
 }
 
 // LeaveLobby godoc
-// @Summary      Leave the current lobby
+// @Summary      Leave my current lobby
 // @Description  Leaves the lobby the user is currently in. Handles host migration and lobby deletion.
 // @Tags         lobbies
 // @Produce      json
 // @Security     BearerAuth
 // @Success      200 {object} map[string]string "{"message": "Left lobby successfully"}"
 // @Failure      404 {object} ErrorResponse "User is not in a lobby"
-// @Router       /lobbies/leave [post]
+// @Router       /lobbies/me/leave [post]
 func LeaveLobby(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var user models.User
@@ -602,27 +614,27 @@ func LeaveLobby(c *gin.Context) {
 }
 
 // UpdateLobby godoc
-// @Summary      Update a lobby (Host only)
-// @Description  Updates the details of a lobby. Only the host can perform this action.
+// @Summary      Update my lobby (Host only)
+// @Description  Updates the details of the user's current lobby. Only the host can perform this action.
 // @Tags         lobbies
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id    path      int       true  "Lobby ID"
 // @Param        input body      LobbyInput true  "New Lobby Info"
 // @Success      200   {object}  LobbyResponse
 // @Failure      403   {object}  ErrorResponse "Only the host can update the lobby"
-// @Failure      404   {object}  ErrorResponse "Lobby not found"
-// @Router       /lobbies/{id} [put]
+// @Failure      404   {object}  ErrorResponse "User is not in a lobby"
+// @Router       /lobbies/me [put]
 func UpdateLobby(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	lobbyID, _ := strconv.Atoi(c.Param("id"))
 
-	var lobby models.Lobby
-	if err := database.DB.First(&lobby, lobbyID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Lobby not found"})
+	var user models.User
+	if err := database.DB.Preload("CurrentLobby.Game").Preload("CurrentLobby.Members").First(&user, userID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
 		return
 	}
+
+	lobby := user.CurrentLobby
 
 	if lobby.HostID != userID.(uint) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the host can update the lobby"})
@@ -636,8 +648,7 @@ func UpdateLobby(c *gin.Context) {
 	}
 
 	// Get old game for comparison
-	var oldGame models.Game
-	database.DB.First(&oldGame, lobby.GameID)
+	oldGameID := lobby.GameID
 
 	lobby.Description = input.Description
 	lobby.MaxPlayers = input.MaxPlayers
@@ -645,10 +656,11 @@ func UpdateLobby(c *gin.Context) {
 
 	database.DB.Save(&lobby)
 
+	// Reload the lobby with all associations to return the updated data
 	database.DB.Preload("Game").Preload("Host").Preload("Members").First(&lobby, lobby.ID)
 
 	// Post system message if game changed
-	if oldGame.ID != lobby.Game.ID {
+	if oldGameID != lobby.GameID {
 		systemMessage := models.Message{
 			LobbyID: lobby.ID,
 			UserID:  nil, // System message
@@ -665,34 +677,34 @@ func UpdateLobby(c *gin.Context) {
 	// Broadcast general lobby update
 	hub.GlobalHub.Broadcast(lobby.ID, hub.Event{
 		Type:    "lobby_updated",
-		Payload: newLobbyResponse(lobby),
+		Payload: newLobbyResponse(*lobby),
 	})
 
-	c.JSON(http.StatusOK, newLobbyResponse(lobby))
+	c.JSON(http.StatusOK, newLobbyResponse(*lobby))
 }
 
 // KickMember godoc
-// @Summary      Kick a member from a lobby (Host only)
-// @Description  Removes a member from the lobby. Only the host can perform this action.
+// @Summary      Kick a member from my lobby (Host only)
+// @Description  Removes a member from the user's current lobby. Only the host can perform this action.
 // @Tags         lobbies
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id      path int true "Lobby ID"
 // @Param        userID  path int true "User ID of member to kick"
 // @Success      200 {object} map[string]string "{"message": "Member kicked successfully"}"
 // @Failure      403 {object} ErrorResponse "Only the host can kick members"
-// @Failure      404 {object} ErrorResponse "Lobby or member not found"
-// @Router       /lobbies/{id}/members/{userID} [delete]
+// @Failure      404 {object} ErrorResponse "User is not in a lobby or member not found"
+// @Router       /lobbies/me/members/{userID} [delete]
 func KickMember(c *gin.Context) {
 	hostID, _ := c.Get("userID")
-	lobbyID, _ := strconv.Atoi(c.Param("id"))
 	memberToKickID, _ := strconv.Atoi(c.Param("userID"))
 
-	var lobby models.Lobby
-	if err := database.DB.First(&lobby, lobbyID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Lobby not found"})
+	var user models.User
+	if err := database.DB.Preload("CurrentLobby").First(&user, hostID).Error; err != nil || user.CurrentLobbyID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User is not in a lobby"})
 		return
 	}
+	
+	lobby := user.CurrentLobby
 
 	if lobby.HostID != hostID.(uint) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the host can kick members"})
@@ -705,7 +717,7 @@ func KickMember(c *gin.Context) {
 	}
 
 	var memberToKick models.User
-	if err := database.DB.Where("id = ? AND current_lobby_id = ?", memberToKickID, lobbyID).First(&memberToKick).Error; err != nil {
+	if err := database.DB.Where("id = ? AND current_lobby_id = ?", memberToKickID, lobby.ID).First(&memberToKick).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Member not found in this lobby"})
 		return
 	}

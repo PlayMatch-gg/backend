@@ -241,7 +241,7 @@ func ToggleFavoriteGame(c *gin.Context) {
 // @Failure      404 {object} ErrorResponse "Game not found"
 // @Router       /games/{id} [get]
 func GetGameByID(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userID, userOk := c.Get("userID")
 	id, _ := strconv.Atoi(c.Param("id"))
 
 	var game models.Game
@@ -250,13 +250,14 @@ func GetGameByID(c *gin.Context) {
 		return
 	}
 
-	// Check if this game is a favorite for the current user
-	var user models.User
-	database.DB.Preload("FavoriteGames", "id = ?", id).First(&user, userID)
-
 	favoriteIDs := make(map[uint]bool)
-	if len(user.FavoriteGames) > 0 {
-		favoriteIDs[uint(id)] = true
+	if userOk {
+		// Check if this game is a favorite for the current user
+		var user models.User
+		database.DB.Preload("FavoriteGames", "id = ?", id).First(&user, userID)
+		if len(user.FavoriteGames) > 0 {
+			favoriteIDs[uint(id)] = true
+		}
 	}
 
 	c.JSON(http.StatusOK, newGameResponse(game, favoriteIDs))
@@ -276,7 +277,7 @@ func GetGameByID(c *gin.Context) {
 // @Success      200 {object} PaginatedGameResponse
 // @Router       /games [get]
 func GetGames(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userID, userOk := c.Get("userID")
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
 		page = 1
@@ -296,13 +297,15 @@ func GetGames(c *gin.Context) {
 	favoritesOnly, _ := strconv.ParseBool(c.Query("favorites_only"))
 
 	// Get user's favorite game IDs first for efficient checking
-	var user models.User
-	database.DB.Preload("FavoriteGames").First(&user, userID)
 	favoriteIDs := make(map[uint]bool)
 	var favGameIDs []uint
-	for _, favGame := range user.FavoriteGames {
-		favoriteIDs[favGame.ID] = true
-		favGameIDs = append(favGameIDs, favGame.ID)
+	if userOk {
+		var user models.User
+		database.DB.Preload("FavoriteGames").First(&user, userID)
+		for _, favGame := range user.FavoriteGames {
+			favoriteIDs[favGame.ID] = true
+			favGameIDs = append(favGameIDs, favGame.ID)
+		}
 	}
 
 	var totalItems int64
@@ -312,7 +315,7 @@ func GetGames(c *gin.Context) {
 
 	// Filter by favorites only
 	if favoritesOnly {
-		if len(favGameIDs) == 0 { // If no favorites, return empty paginated response
+		if !userOk || len(favGameIDs) == 0 { // If no favorites or not logged in, return empty
 			c.JSON(http.StatusOK, NewPaginatedResponse([]GameResponse{}, 0, page, limit))
 			return
 		}
@@ -345,7 +348,12 @@ func GetGames(c *gin.Context) {
     // to avoid GORM's default behavior which can be incorrect.
     countQuery := database.DB.Model(&models.Game{})
     if favoritesOnly {
-        countQuery = countQuery.Where("id IN (?)", favGameIDs)
+		if !userOk {
+			// This case is already handled above, but for safety
+			totalItems = 0
+		} else {
+        	countQuery = countQuery.Where("id IN (?)", favGameIDs)
+		}
     }
     if searchQuery != "" {
         countQuery = countQuery.Where("name ILIKE ?", "%"+searchQuery+"%")
@@ -361,7 +369,7 @@ func GetGames(c *gin.Context) {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count games"})
 		    return
         }
-    } else {
+    } else if !(favoritesOnly && !userOk) { // Avoid counting if we already know it's 0
         if err := countQuery.Count(&totalItems).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count games"})
 		    return
@@ -370,11 +378,13 @@ func GetGames(c *gin.Context) {
 
 	// --- Fetch paginated data ---
 	var games []models.Game
-	err = dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games).Error
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve games"})
-		return
-    }
+	if !(favoritesOnly && !userOk) { // Don't fetch if we know it's empty
+		err = dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games).Error
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve games"})
+			return
+		}
+	}
 
 	var response []GameResponse
 	for _, game := range games {
