@@ -30,6 +30,18 @@ type LobbyResponse struct {
 	Members     []PublicUserResponse `json:"members"`
 }
 
+// PaginatedLobbyResponse defines the structure for a paginated list of lobbies.
+type PaginatedLobbyResponse struct {
+	Data []LobbyResponse `json:"data"`
+	Meta PaginationMeta  `json:"meta"`
+}
+
+// PaginatedMessageResponse defines the structure for a paginated list of messages.
+type PaginatedMessageResponse struct {
+	Data []MessageResponse `json:"data"`
+	Meta PaginationMeta    `json:"meta"`
+}
+
 type MessageInput struct {
 	Content string `json:"content" binding:"required"`
 }
@@ -197,7 +209,7 @@ func PostMessage(c *gin.Context) {
 // @Param        id   path      int  true  "Lobby ID"
 // @Param        page query     int  false "Page number" default(1)
 // @Param        limit query    int  false "Items per page" default(50)
-// @Success      200 {array} MessageResponse
+// @Success      200 {object} PaginatedMessageResponse
 // @Failure      401 {object} ErrorResponse
 // @Failure      403 {object} ErrorResponse "Not a member of this lobby"
 // @Failure      404 {object} ErrorResponse "Lobby not found"
@@ -214,17 +226,36 @@ func GetMessages(c *gin.Context) {
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit < 1 {
+		limit = 50
+	}
 	offset := (page - 1) * limit
 
 	var messages []models.Message
-	database.DB.Where("lobby_id = ?", lobbyID).
-		Preload("User").
+	var totalItems int64
+
+	query := database.DB.Model(&models.Message{}).Where("lobby_id = ?", lobbyID)
+
+	// Count total items
+	if err := query.Count(&totalItems).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count messages"})
+		return
+	}
+
+	// Fetch paginated items
+	if err := query.Preload("User").
 		Order("created_at DESC"). // Latest messages first
 		Limit(limit).Offset(offset).
-		Find(&messages)
+		Find(&messages).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve messages"})
+		return
+	}
 
-	// Reverse messages to show oldest first in display
+	// Reverse messages to show oldest first in the paginated set
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
@@ -234,7 +265,7 @@ func GetMessages(c *gin.Context) {
 		response = append(response, newMessageResponse(msg))
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, NewPaginatedResponse(response, totalItems, page, limit))
 }
 
 // CreateLobby godoc
@@ -324,35 +355,66 @@ func CreateLobby(c *gin.Context) {
 // @Param        game_id query int false "Filter by Game ID"
 // @Param        page    query int false "Page number" default(1)
 // @Param        limit   query int false "Items per page" default(10)
-// @Success      200 {array} LobbyResponse
+// @Success      200 {object} PaginatedLobbyResponse
 // @Router       /lobbies [get]
 func SearchLobbies(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
 	offset := (page - 1) * limit
 	gameID := c.Query("game_id")
 
 	var lobbies []models.Lobby
-	query := database.DB.Model(&models.Lobby{}).
+	var totalItems int64
+
+	// Base query for filtering not-full lobbies
+	baseQuery := database.DB.Model(&models.Lobby{}).
+		Joins("LEFT JOIN users ON users.current_lobby_id = lobbies.id").
+		Group("lobbies.id").
+		Having("COUNT(users.id) < lobbies.max_players")
+
+	if gameID != "" {
+		baseQuery = baseQuery.Where("lobbies.game_id = ?", gameID)
+	}
+
+	// For counting, we need a subquery to correctly handle the GROUP and HAVING clauses.
+	// We select only the ID in the subquery for efficiency.
+	subQuery := baseQuery.Select("lobbies.id")
+	if err := database.DB.Table("(?) as sub", subQuery).Count(&totalItems).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count lobbies"})
+		return
+	}
+
+	// Now, get the actual paginated data with all necessary preloads.
+	// We apply the same conditions to a new query.
+	dataQuery := database.DB.Model(&models.Lobby{}).
 		Preload("Game").
 		Preload("Host").
 		Preload("Members").
 		Joins("LEFT JOIN users ON users.current_lobby_id = lobbies.id").
 		Group("lobbies.id").
-		Having("COUNT(users.id) < lobbies.max_players") // Filter out full lobbies
+		Having("COUNT(users.id) < lobbies.max_players")
 
 	if gameID != "" {
-		query = query.Where("lobbies.game_id = ?", gameID)
+		dataQuery = dataQuery.Where("lobbies.game_id = ?", gameID)
 	}
 
-	query.Offset(offset).Limit(limit).Find(&lobbies)
+	if err := dataQuery.Offset(offset).Limit(limit).Find(&lobbies).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve lobbies"})
+		return
+	}
 
 	var response []LobbyResponse
 	for _, lobby := range lobbies {
 		response = append(response, newLobbyResponse(lobby))
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, NewPaginatedResponse(response, totalItems, page, limit))
 }
 
 // GetLobbyByID godoc

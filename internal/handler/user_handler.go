@@ -62,13 +62,6 @@ type PaginatedUserResponse struct {
 	Meta PaginationMeta       `json:"meta"`
 }
 
-// PaginationMeta defines the structure for pagination metadata.
-type PaginationMeta struct {
-	TotalItems  int64 `json:"total_items"`
-	TotalPages  int   `json:"total_pages"`
-	CurrentPage int   `json:"current_page"`
-	PageSize    int   `json:"page_size"`
-}
 
 // endregion
 
@@ -238,15 +231,7 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, PaginatedUserResponse{
-		Data: finalResponses,
-		Meta: PaginationMeta{
-			TotalItems:  totalItems,
-			TotalPages:  (int(totalItems) + limit - 1) / limit,
-			CurrentPage: page,
-			PageSize:    limit,
-		},
-	})
+	c.JSON(http.StatusOK, NewPaginatedResponse(finalResponses, totalItems, page, limit))
 }
 
 // GetUserByID godoc

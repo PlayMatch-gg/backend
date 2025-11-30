@@ -50,6 +50,12 @@ func newGameResponse(game models.Game, favoriteIDs map[uint]bool) GameResponse {
 	}
 }
 
+// PaginatedGameResponse defines the structure for a paginated list of games.
+type PaginatedGameResponse struct {
+	Data []GameResponse `json:"data"`
+	Meta PaginationMeta `json:"meta"`
+}
+
 // endregion
 
 // region --- Admin Handlers ---
@@ -267,7 +273,7 @@ func GetGameByID(c *gin.Context) {
 // @Param        favorites_only query bool false "Return only favorite games"
 // @Param        page    query     int     false  "Page number" default(1)
 // @Param        limit   query     int     false  "Items per page" default(10)
-// @Success      200 {array} GameResponse
+// @Success      200 {object} PaginatedGameResponse
 // @Router       /games [get]
 func GetGames(c *gin.Context) {
 	userID, _ := c.Get("userID")
@@ -299,13 +305,15 @@ func GetGames(c *gin.Context) {
 		favGameIDs = append(favGameIDs, favGame.ID)
 	}
 
-	var games []models.Game
+	var totalItems int64
+	
+	// Create the base query for both counting and data retrieval
 	dbQuery := database.DB.Model(&models.Game{})
 
 	// Filter by favorites only
 	if favoritesOnly {
-		if len(favGameIDs) == 0 { // If no favorites, return empty list
-			c.JSON(http.StatusOK, []GameResponse{})
+		if len(favGameIDs) == 0 { // If no favorites, return empty paginated response
+			c.JSON(http.StatusOK, NewPaginatedResponse([]GameResponse{}, 0, page, limit))
 			return
 		}
 		dbQuery = dbQuery.Where("id IN (?)", favGameIDs)
@@ -317,29 +325,63 @@ func GetGames(c *gin.Context) {
 	}
 
 	// Filter by tags
+    var tagIDs []uint
 	if tagIDsStr != "" {
-		tagIDs := []uint{}
 		for _, s := range splitCommaSeparated(tagIDsStr) {
 			if id, parseErr := strconv.ParseUint(s, 10, 32); parseErr == nil {
 				tagIDs = append(tagIDs, uint(id))
 			}
 		}
+    }
 
-		if len(tagIDs) > 0 {
-			dbQuery = dbQuery.Joins("JOIN game_tags gt ON gt.game_id = games.id").
-				Where("gt.tag_id IN (?)", tagIDs).
-				Group("games.id")
-		}
-	}
+    if len(tagIDs) > 0 {
+        dbQuery = dbQuery.Joins("JOIN game_tags gt ON gt.game_id = games.id").
+            Where("gt.tag_id IN (?)", tagIDs).
+            Group("games.id")
+    }
 
-	dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games)
+	// --- Count total items ---
+    // We need a separate query for counting when using GROUP BY
+    // to avoid GORM's default behavior which can be incorrect.
+    countQuery := database.DB.Model(&models.Game{})
+    if favoritesOnly {
+        countQuery = countQuery.Where("id IN (?)", favGameIDs)
+    }
+    if searchQuery != "" {
+        countQuery = countQuery.Where("name ILIKE ?", "%"+searchQuery+"%")
+    }
+    if len(tagIDs) > 0 {
+        // For a grouped query, we count the number of distinct groups.
+        // Creating a subquery for the count is a robust way to do this.
+        subQuery := countQuery.Joins("JOIN game_tags gt ON gt.game_id = games.id").
+            Where("gt.tag_id IN (?)", tagIDs).
+            Group("games.id").Select("games.id")
+        
+        if err := database.DB.Table("(?) as sub", subQuery).Count(&totalItems).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count games"})
+		    return
+        }
+    } else {
+        if err := countQuery.Count(&totalItems).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count games"})
+		    return
+        }
+    }
+
+	// --- Fetch paginated data ---
+	var games []models.Game
+	err = dbQuery.Preload("Tags").Offset(offset).Limit(limit).Find(&games).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve games"})
+		return
+    }
 
 	var response []GameResponse
 	for _, game := range games {
 		response = append(response, newGameResponse(game, favoriteIDs))
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, NewPaginatedResponse(response, totalItems, page, limit))
 }
 
 // Helper to split comma-separated strings
